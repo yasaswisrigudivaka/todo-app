@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>To-Do List</title>
+<style>
+:root{--bg:#f3f6fb;--card:#fff;--text:#1a2233;--muted:#6b7588;--primary:#2563eb;--border:#e2e8f0;--danger:#dc2626}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#1a2133;--text:#e8edf7;--muted:#9aa5ba;--primary:#5b8cff;--border:#2b3550;--danger:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);padding:16px;padding-top:max(16px,env(safe-area-inset-top))}
+.app{max-width:520px;margin:0 auto;background:var(--card);border-radius:16px;padding:20px;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+h1{margin:0 0 16px;font-size:1.5rem}
+form{display:flex;gap:8px}
+input[type=text]{flex:1;min-width:0;padding:12px;border:1px solid var(--border);border-radius:10px;font-size:1rem;background:var(--bg);color:var(--text)}
+button{cursor:pointer;border:0;border-radius:10px;padding:10px 14px;font-size:.95rem;background:var(--primary);color:#fff}
+.filters{display:flex;gap:8px;margin:16px 0}
+.filters button{background:var(--bg);color:var(--text);border:1px solid var(--border);flex:1}
+.filters button.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+ul{list-style:none;padding:0;margin:0}
+li{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--border)}
+li .text{flex:1;word-break:break-word}
+li.done .text{text-decoration:line-through;color:var(--muted)}
+li input[type=checkbox]{width:20px;height:20px}
+li .edit-input{flex:1;min-width:0;padding:8px;border:1px solid var(--primary);border-radius:8px;font-size:1rem;background:var(--bg);color:var(--text)}
+.edit-btn{background:transparent;color:var(--primary);padding:6px}
+.delete-btn{background:transparent;color:var(--danger);padding:6px}
+.footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px;color:var(--muted);font-size:.9rem}
+.footer button{background:transparent;color:var(--danger);padding:4px}
+.empty{text-align:center;color:var(--muted);padding:24px 0}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>📝 To-Do List</h1>
+  <form id="todo-form">
+    <input type="text" id="todo-input" placeholder="Add a new task..." autocomplete="off" required>
+    <button type="submit">Add</button>
+  </form>
+  <div class="filters" id="filters">
+    <button data-filter="all" class="active">All</button>
+    <button data-filter="active">Active</button>
+    <button data-filter="completed">Completed</button>
+  </div>
+  <ul id="todo-list"></ul>
+  <div class="footer">
+    <span id="count"></span>
+    <button id="clear-completed">Clear completed</button>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'todos';
+let todos = load();          // state
+let filter = 'all';          // state
+let editingId = null;        // state
+
+const form = document.getElementById('todo-form');
+const input = document.getElementById('todo-input');
+const list = document.getElementById('todo-list');
+const filtersEl = document.getElementById('filters');
+const countEl = document.getElementById('count');
+
+function load() {
+  try { return JSON.parse(window.localStorage.getItem(STORAGE_KEY)) || []; }
+  catch (e) { return []; }
+}
+function save() {
+  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(todos)); } catch (e) {}
+}
+
+// CREATE
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  todos.push({ id: Date.now(), text, completed: false });
+  input.value = '';
+  update();
+});
+
+// Event delegation: one listener on the list handles every item
+list.addEventListener('click', (e) => {
+  const li = e.target.closest('li');
+  if (!li) return;
+  const id = Number(li.dataset.id);
+  if (e.target.matches('.toggle')) {                 // UPDATE (status)
+    const t = todos.find(t => t.id === id);
+    t.completed = !t.completed;
+    update();
+  } else if (e.target.matches('.delete-btn')) {      // DELETE
+    todos = todos.filter(t => t.id !== id);
+    update();
+  } else if (e.target.matches('.edit-btn')) {        // UPDATE (text)
+    editingId = id;
+    render();
+    const box = list.querySelector('.edit-input');
+    if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+  }
+});
+
+list.addEventListener('keydown', (e) => {
+  if (!e.target.matches('.edit-input')) return;
+  if (e.key === 'Enter') finishEdit(e.target, true);
+  if (e.key === 'Escape') finishEdit(e.target, false);
+});
+list.addEventListener('focusout', (e) => {
+  if (e.target.matches('.edit-input') && editingId !== null) finishEdit(e.target, true);
+});
+
+function finishEdit(box, commit) {
+  const id = editingId;
+  editingId = null;
+  const text = box.value.trim();
+  if (commit && text) {
+    const t = todos.find(t => t.id === id);
+    if (t) t.text = text;
+  }
+  update();
+}
+
+// FILTERING
+filtersEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-filter]');
+  if (!btn) return;
+  filter = btn.dataset.filter;
+  render();
+});
+
+document.getElementById('clear-completed').addEventListener('click', () => {
+  todos = todos.filter(t => !t.completed);
+  update();
+});
+
+function update() { save(); render(); }
+
+// READ / render from state
+function render() {
+  filtersEl.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('active', b.dataset.filter === filter));
+
+  const visible = todos.filter(t =>
+    filter === 'all' ? true : filter === 'active' ? !t.completed : t.completed);
+
+  list.innerHTML = '';
+  if (!visible.length) {
+    const p = document.createElement('li');
+    p.className = 'empty';
+    p.style.justifyContent = 'center';
+    p.textContent = 'No tasks here.';
+    list.appendChild(p);
+  }
+  visible.forEach(t => {
+    const li = document.createElement('li');
+    li.dataset.id = t.id;
+    if (t.completed) li.classList.add('done');
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'toggle'; cb.checked = t.completed;
+    li.appendChild(cb);
+
+    if (editingId === t.id) {
+      const box = document.createElement('input');
+      box.type = 'text'; box.className = 'edit-input'; box.value = t.text;
+      li.appendChild(box);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'text'; span.textContent = t.text;   // textContent = safe from XSS
+      li.appendChild(span);
+      const ed = document.createElement('button');
+      ed.className = 'edit-btn'; ed.textContent = '✏️'; ed.setAttribute('aria-label', 'Edit');
+      const del = document.createElement('button');
+      del.className = 'delete-btn'; del.textContent = '🗑️'; del.setAttribute('aria-label', 'Delete');
+      li.append(ed, del);
+    }
+    list.appendChild(li);
+  });
+
+  const left = todos.filter(t => !t.completed).length;
+  countEl.textContent = left + (left === 1 ? ' task left' : ' tasks left');
+}
+
+render();
+</script>
+</body>
+</html>
